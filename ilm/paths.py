@@ -6,4 +6,6 @@ _REPO_DIR = os.path.dirname(_LIB_DIR)
 
 OFFICIAL_GPT2_ENCODER_DIR = os.path.join(_LIB_DIR, 'official_gpt2_encoder')
 
+RUS_GPT2_ENCODER_DIR = os.path.join(_LIB_DIR, '..', 'rus_gpt2')
+
 RAW_DATA_DIR = os.path.join(_REPO_DIR, 'data', 'raw_data')

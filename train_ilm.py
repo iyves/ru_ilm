@@ -1,3 +1,4 @@
+print("at the top")
 from enum import Enum
 from collections import defaultdict
 import multiprocessing
@@ -7,8 +8,10 @@ import random
 import time
 import warnings
 
+print("before numpy")
 import numpy as np
 import torch
+import sys
 import torch.nn.functional as F
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler, TensorDataset)
 from tqdm import tqdm
@@ -18,10 +21,13 @@ try:
 except:
   pass
 
+print("import ilm")
 import ilm.constants
 import ilm.mask
 import ilm.mask.util
 import ilm.tokenize_util
+
+print("Program started")
 
 class Task(Enum):
   # Example: She ate <?> for <?><S>cereal<E>breakfast<E>
@@ -68,6 +74,8 @@ def worker_target_factory(
     skip_naive_incomplete):
   def fn(doc_and_char_masks):
     doc, char_masks = doc_and_char_masks
+    # print("doc:", doc)
+    # print("char_masks:", char_masks)
     try:
       return doc_and_char_masks_to_input_and_tt(
           doc,
@@ -99,8 +107,11 @@ def doc_and_char_masks_to_input_and_tt(
   try:
     doc_tokens = ilm.tokenize_util.tokenize(doc, tokenizer=tokenizer)
     doc_tokens_ids = ilm.tokenize_util.tokens_to_ids(doc_tokens, tokenizer=tokenizer)
+    # print("doc_tokens:", doc_tokens)
+    # print("doc_token_ids:", doc_tokens_ids)
   except:
     doc_tokens = None
+    print("failed to tokenize document!", sys.exc_info()[0])
     #error_to_count['Failed to tokenize document'] += len(char_masks)
 
   # Align character masks to tokens
@@ -110,6 +121,7 @@ def doc_and_char_masks_to_input_and_tt(
       try:
         tok_mask = ilm.mask.util.align_char_mask_to_tokens(doc, doc_tokens, char_mask)
       except:
+        print("Failed to align character-level mask to tokens", sys.exc_info()[0])
         #error_to_count['Failed to align character-level mask to tokens'] += 1
         continue
       tok_masks.append(tok_mask)
@@ -222,7 +234,10 @@ def masked_dataset_to_inputs_and_tts(
 
   with open(os.path.join(args.examples_dir, '{}.pkl'.format(examples_tag)), 'rb') as f:
     dataset = pickle.load(f)
+    if max_num_examples is not None:
+        dataset = dataset[:max_num_examples]
   num_docs = len(dataset)
+  print("len(dataset):", num_docs)
 
   # Mask and tokenize documents
   global _GLOBAL_WORKER_TARGET
@@ -241,7 +256,9 @@ def masked_dataset_to_inputs_and_tts(
 
   inputs = np.concatenate([i for i, _ in docs_inputs_and_tts], axis=0)
   tts = np.concatenate([t for _, t in docs_inputs_and_tts], axis=0)
-
+  
+  print("len(inputs):", len(inputs), inputs)
+  print("len(tts):", len(tts), tts)
   # TODO: Don't bother doing all the work if we're not going to use it
   if max_num_examples is not None:
     set_random_seed(args.seed)
@@ -280,11 +297,13 @@ def train(args):
   resuming = os.path.exists(out_fn_to_fp('step.pkl'))
 
   # Create tokenizer
+  print("Creating tokenizer")
   tokenizer = ilm.tokenize_util.Tokenizer[args.tokenizer_name.upper()]
   if tokenizer == ilm.tokenize_util.Tokenizer.CUSTOM:
     ilm.tokenize_util.set_custom_vocab_fp(args.tokenizer_custom_vocab_fp)
 
   # Update tokenizer
+  print("Updating tokenizer")
   base_vocab_size = ilm.tokenize_util.vocab_size(tokenizer)
   start_infill_id = base_vocab_size + 0
   end_infill_id = base_vocab_size + 1
@@ -405,7 +424,8 @@ def train(args):
     cfg_type = GPT2Config
   if resuming:
     print('from saved checkpoint (resuming)')
-    model = model_type.from_pretrained(args.train_dir)
+    model = GPT2LMHeadModel.from_pretrained(args.train_dir)
+    # model = model_type.from_pretrained(args.train_dir)
   else:
     if args.train_from_scratch:
       print('from scratch')
@@ -413,7 +433,8 @@ def train(args):
       model = model_type(cfg)
     else:
       print('from pretrained checkpoint')
-      model = model_type.from_pretrained(args.model_name)
+      model = GPT2LMHeadModel.from_pretrained(args.model_name)
+      #model = model_type.from_pretrained(args.model_name)
   model.resize_token_embeddings(vocab_size)
   model.to(device)
   model.train()
@@ -421,6 +442,7 @@ def train(args):
   # Reset random seed in case model init triggered RNG
 
   # Initialize optimizers
+  print("Initializing optimizers")
   if not args.eval_only:
     params = list(model.named_parameters())
     no_decay = ['bias', 'ln']
@@ -443,6 +465,7 @@ def train(args):
 
   # Create global step
   if resuming:
+    print("resuming creating global step")
     try:
       with open(out_fn_to_fp('step.pkl'), 'rb') as f:
         step = pickle.load(f)
@@ -529,7 +552,12 @@ def train(args):
           for i, eval_batch in enumerate(eval_dataloader):
             with torch.no_grad():
               eval_inputs, eval_tts = tuple(t.to(device) for t in eval_batch)
-              eval_logits, _ = model(eval_inputs)
+            #   eval_logits, boop = model(eval_inputs)
+              eval_logits = model(eval_inputs).logits
+            #   print("eval_inputs: ", eval_inputs)
+            #   print("model(eval_inputs): ", model(eval_inputs))
+            #   print("boop: ", boop)
+            #   print("eval_logits:", eval_logits)
               eval_logits_relevant = eval_logits[:, :-1].contiguous().view(-1, eval_logits.shape[-1])
 
               for tag, tts in [
@@ -581,7 +609,8 @@ def train(args):
         # TODO: Option to skip training on INFILL_REDUNDANT?
         # NOTE: This would give Task.NAIVE/Task.LM less supervision overall but put them more in line with the supervision that Task.ILM and Task.NO_CONTEXT_ILM receive
         labels_infill = tts_to_labels(inputs, tts, [TargetType.INFILL, TargetType.INFILL_SPECIAL, TargetType.INFILL_REDUNDANT])
-        logits, _ = model(inputs)
+        # logits, _ = model(inputs)
+        logits = model(inputs).logits
         logits_relevant = logits[:, :-1].contiguous().view(-1, logits.shape[-1])
         loss_context = F.cross_entropy(
             logits_relevant,
@@ -636,103 +665,103 @@ def train(args):
         num_batches_complete += 1
 
 
-if __name__ == '__main__':
-  from argparse import ArgumentParser
+# if __name__ == '__main__':
+from argparse import ArgumentParser
 
-  parser = ArgumentParser()
+parser = ArgumentParser()
 
-  parser.add_argument('experiment_name', type=str)
-  parser.add_argument('train_dir', type=str)
-  parser.add_argument('examples_dir', type=str)
-  parser.add_argument('--seed', type=int)
-  parser.add_argument('--wandb', action='store_true', dest='wandb')
-  parser.add_argument('--wandb_project_name', type=str)
+parser.add_argument('experiment_name', type=str)
+parser.add_argument('train_dir', type=str)
+parser.add_argument('examples_dir', type=str)
+parser.add_argument('--seed', type=int)
+parser.add_argument('--wandb', action='store_true', dest='wandb')
+parser.add_argument('--wandb_project_name', type=str)
 
-  mask_args = parser.add_argument_group('Mask')
-  mask_args.add_argument('--mask_cls', type=str)
+mask_args = parser.add_argument_group('Mask')
+mask_args.add_argument('--mask_cls', type=str)
 
-  tokenizer_args = parser.add_argument_group('Tokenizer')
-  tokenizer_args.add_argument('--tokenizer_name', type=str, choices=[t.name.lower() for t in ilm.tokenize_util.Tokenizer])
-  tokenizer_args.add_argument('--tokenizer_custom_vocab_fp', type=str)
+tokenizer_args = parser.add_argument_group('Tokenizer')
+tokenizer_args.add_argument('--tokenizer_name', type=str)#, choices=[t.name.lower() for t in ilm.tokenize_util.Tokenizer])
+tokenizer_args.add_argument('--tokenizer_custom_vocab_fp', type=str)
 
-  task_args = parser.add_argument_group('Task')
-  task_args.add_argument('--task', type=str, choices=[t.name.lower() for t in Task])
+task_args = parser.add_argument_group('Task')
+task_args.add_argument('--task', type=str, choices=[t.name.lower() for t in Task])
 
-  data_args = parser.add_argument_group('Data')
-  data_args.add_argument('--data_no_cache', action='store_false', dest='data_cache')
-  data_args.add_argument('--data_loader_num_workers', type=int)
+data_args = parser.add_argument_group('Data')
+data_args.add_argument('--data_no_cache', action='store_false', dest='data_cache')
+data_args.add_argument('--data_loader_num_workers', type=int)
 
-  model_args = parser.add_argument_group('Model')
-  model_args.add_argument('--model_name', type=str, choices=ilm.constants.GPT2_MODEL_NAMES)
+model_args = parser.add_argument_group('Model')
+model_args.add_argument('--model_name', type=str)#, choices=ilm.constants.GPT2_MODEL_NAMES)
 
-  train_args = parser.add_argument_group('Train')
-  train_args.add_argument('--train_examples_tag', type=str)
-  train_args.add_argument('--train_max_num_examples', type=int)
-  train_args.add_argument('--train_num_epochs', type=int)
-  train_args.add_argument('--train_from_scratch', action='store_true', dest='train_from_scratch')
-  train_args.add_argument('--train_batch_size', type=int)
-  train_args.add_argument('--train_batch_accumulation', type=int)
-  train_args.add_argument('--train_sequence_length', type=int)
-  train_args.add_argument('--train_skip_naive_incomplete', action='store_true', dest='train_skip_naive_incomplete')
-  train_args.add_argument('--train_eval_secs', type=float)
-  train_args.add_argument('--train_summary_secs', type=float)
-  train_args.add_argument('--train_minimal_supervision', action='store_false', dest='train_context')
-  train_args.add_argument('--train_learning_rate', type=float)
-  train_args.add_argument('--train_weight_decay', type=float)
-  train_args.add_argument('--train_adam_epsilon', type=float)
-  train_args.add_argument('--train_max_grad_norm', type=float)
+train_args = parser.add_argument_group('Train')
+train_args.add_argument('--train_examples_tag', type=str)
+train_args.add_argument('--train_max_num_examples', type=int)
+train_args.add_argument('--train_num_epochs', type=int)
+train_args.add_argument('--train_from_scratch', action='store_true', dest='train_from_scratch')
+train_args.add_argument('--train_batch_size', type=int)
+train_args.add_argument('--train_batch_accumulation', type=int)
+train_args.add_argument('--train_sequence_length', type=int)
+train_args.add_argument('--train_skip_naive_incomplete', action='store_true', dest='train_skip_naive_incomplete')
+train_args.add_argument('--train_eval_secs', type=float)
+train_args.add_argument('--train_summary_secs', type=float)
+train_args.add_argument('--train_minimal_supervision', action='store_false', dest='train_context')
+train_args.add_argument('--train_learning_rate', type=float)
+train_args.add_argument('--train_weight_decay', type=float)
+train_args.add_argument('--train_adam_epsilon', type=float)
+train_args.add_argument('--train_max_grad_norm', type=float)
 
-  eval_args = parser.add_argument_group('Eval')
-  eval_args.add_argument('--eval_only', action='store_true', dest='eval_only')
-  eval_args.add_argument('--eval_examples_tag', type=str)
-  eval_args.add_argument('--eval_max_num_examples', type=int)
-  eval_args.add_argument('--eval_batch_size', type=int)
-  eval_args.add_argument('--eval_sequence_length', type=int)
-  eval_args.add_argument('--eval_skip_naive_incomplete', action='store_true', dest='eval_skip_naive_incomplete')
+eval_args = parser.add_argument_group('Eval')
+eval_args.add_argument('--eval_only', action='store_true', dest='eval_only')
+eval_args.add_argument('--eval_examples_tag', type=str)
+eval_args.add_argument('--eval_max_num_examples', type=int)
+eval_args.add_argument('--eval_batch_size', type=int)
+eval_args.add_argument('--eval_sequence_length', type=int)
+eval_args.add_argument('--eval_skip_naive_incomplete', action='store_true', dest='eval_skip_naive_incomplete')
 
-  parser.set_defaults(
-      seed=None,
-      wandb=False,
-      wandb_project_name='ilm',
-      mask_cls='ilm.mask.hierarchical.MaskHierarchical',
-      tokenizer_name='gpt2',
-      tokenizer_custom_vocab_fp=None,
-      task='ilm',
-      data_cache=True,
-      data_loader_num_workers=4,
-      model_name='gpt2',
-      train_examples_tag='train',
-      train_max_num_examples=None,
-      train_num_epochs=None,
-      train_from_scratch=False,
-      train_batch_size=8,
-      train_batch_accumulation=3,
-      train_sequence_length=256,
-      train_skip_naive_incomplete=False,
-      train_eval_secs=360,
-      train_summary_secs=360,
-      train_context=True,
-      train_learning_rate=5e-5,
-      train_weight_decay=0.,
-      train_adam_epsilon=1e-8,
-      train_max_grad_norm=1.,
-      eval_only=False,
-      eval_examples_tag='valid',
-      eval_max_num_examples=None,
-      eval_batch_size=8,
-      eval_sequence_length=256,
-      eval_skip_naive_incomplete=False)
-  
-  args = parser.parse_args()
+parser.set_defaults(
+  seed=None,
+  wandb=False,
+  wandb_project_name='ilm',
+  mask_cls='ilm.mask.hierarchical.MaskHierarchical',
+  tokenizer_name='gpt2',
+  tokenizer_custom_vocab_fp=None,
+  task='ilm',
+  data_cache=True,
+  data_loader_num_workers=4,
+  model_name='gpt2',
+  train_examples_tag='train',
+  train_max_num_examples=None,
+  train_num_epochs=None,
+  train_from_scratch=False,
+  train_batch_size=8,
+  train_batch_accumulation=3,
+  train_sequence_length=256,
+  train_skip_naive_incomplete=False,
+  train_eval_secs=360,
+  train_summary_secs=360,
+  train_context=True,
+  train_learning_rate=5e-5,
+  train_weight_decay=0.,
+  train_adam_epsilon=1e-8,
+  train_max_grad_norm=1.,
+  eval_only=False,
+  eval_examples_tag='valid',
+  eval_max_num_examples=None,
+  eval_batch_size=8,
+  eval_sequence_length=256,
+  eval_skip_naive_incomplete=False)
 
-  if args.wandb:
+args = parser.parse_args()
+
+if args.wandb:
     wandb.init(
         project=args.wandb_project_name,
         name=args.experiment_name)
     wandb.config.update(args)
 
-  if args.seed is None:
+if args.seed is None:
     args.seed = random.randint(0, 1e6)
-  print('Random seed {}'.format(args.seed))
+    print('Random seed {}'.format(args.seed))
 
-  train(args)
+train(args)
