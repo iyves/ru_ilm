@@ -15,7 +15,7 @@ import sys
 import torch.nn.functional as F
 from torch.utils.data import (DataLoader, RandomSampler, SequentialSampler, TensorDataset)
 from tqdm import tqdm
-from transformers import GPT2Config, GPT2LMHeadModel, AdamW, CONFIG_NAME, WEIGHTS_NAME
+from transformers import AutoConfig, AutoModel, AdamW, CONFIG_NAME, WEIGHTS_NAME
 try:
   import wandb
 except:
@@ -420,11 +420,11 @@ def train(args):
   print('Initializing model...')
   set_random_seed(args.seed)
   if args.model_name in ilm.constants.GPT2_MODEL_NAMES:
-    model_type = GPT2LMHeadModel
-    cfg_type = GPT2Config
+    model_type = AutoModel
+    cfg_type = AutoConfig
   if resuming:
     print('from saved checkpoint (resuming)')
-    model = GPT2LMHeadModel.from_pretrained(args.train_dir)
+    model = AutoModel.from_pretrained(args.train_dir)
     # model = model_type.from_pretrained(args.train_dir)
   else:
     if args.train_from_scratch:
@@ -433,7 +433,7 @@ def train(args):
       model = model_type(cfg)
     else:
       print('from pretrained checkpoint')
-      model = GPT2LMHeadModel.from_pretrained(args.model_name)
+      model = AutoModel.from_pretrained(args.model_name)
       #model = model_type.from_pretrained(args.model_name)
   model.resize_token_embeddings(vocab_size)
   model.to(device)
