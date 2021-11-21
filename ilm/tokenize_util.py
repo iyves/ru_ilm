@@ -102,7 +102,7 @@ def update_tokenizer(additional_ids_to_tokens, tokenizer=DEFAULT_TOKENIZER):
     vocab_size_after = len(state.encoder)
   elif tokenizer == Tokenizer.SBERT:
     vocab_size_before = len(state)
-    state.add_tokens(additional_tokens_to_ids)
+    state.add_tokens(additional_tokens_to_ids.values())
     # note: model was updated w/ resize_token_embeddings
     vocab_size_after = len(state)
   else:
