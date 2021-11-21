@@ -9,6 +9,8 @@ from .constants import GPT2_TOKENIZER_LEN
 from .paths import OFFICIAL_GPT2_ENCODER_DIR, RUS_GPT2_ENCODER_DIR, RUS_SBERT_ENCODER_DIR
 from .official_gpt2_encoder.encoder import Encoder as OfficialEncoder
 
+from transformers import AutoTokenizer
+
 class Tokenizer(Enum):
   CUSTOM = 0
   GPT2 = 1
@@ -64,16 +66,7 @@ def _get_tokenizer_state(tokenizer):
           bpe_merges=bpe_merges)
       _TOKENIZER_TO_STATE[tokenizer] = official_encoder
     elif tokenizer == Tokenizer.SBERT:
-      with open(os.path.join(RUS_SBERT_ENCODER_DIR, 'vocab.json'), 'r') as f:
-        encoder_json = json.load(f)
-      with open(os.path.join(RUS_SBERT_ENCODER_DIR, 'merges.txt'), 'r', encoding='utf-8') as f:
-
-        bpe_data = f.read()
-      bpe_merges = [tuple(merge_str.split()) for merge_str in bpe_data.split('\n')[1:-1]]
-      official_encoder = OfficialEncoder(
-          encoder=encoder_json,
-          bpe_merges=bpe_merges)
-      _TOKENIZER_TO_STATE[tokenizer] = official_encoder
+      _TOKENIZER_TO_STATE[tokenizer] = AutoTokenizer.from_pretrained(RUS_SBERT_ENCODER_DIR) 
         
     #   if _CUSTOM_ID_TO_TOKEN is None:
     #     raise Exception('Must call set_custom_vocab_fp first')
@@ -108,10 +101,10 @@ def update_tokenizer(additional_ids_to_tokens, tokenizer=DEFAULT_TOKENIZER):
     state.decoder.update(additional_ids_to_tokens)
     vocab_size_after = len(state.encoder)
   elif tokenizer == Tokenizer.SBERT:
-    vocab_size_before = len(state.encoder)
-    state.encoder.update(additional_tokens_to_ids)
-    state.decoder.update(additional_ids_to_tokens)
-    vocab_size_after = len(state.encoder)
+    vocab_size_before = len(state)
+    state.add_tokens(additional_tokens_to_ids)
+    # note: model was updated w/ resize_token_embeddings
+    vocab_size_after = len(state)
   else:
     assert False
 
@@ -145,14 +138,7 @@ def tokenize(s, tokenizer=DEFAULT_TOKENIZER):
     tokens = [bytearray([state.byte_decoder[c] for c in token]).decode('utf-8', errors=state.errors) for token in raw_tokens]
     # tokens = s.strip().split()
   elif tokenizer == Tokenizer.SBERT:
-    tokens_regex = re.findall(state.pat, s)
-    tokens_ids = []
-    for token in tokens_regex:
-      token = ''.join(state.byte_encoder[b] for b in token.encode('utf-8'))
-      token_ids = [state.encoder[bpe_token] for bpe_token in state.bpe(token).split(' ')]
-      tokens_ids.extend(token_ids)
-    raw_tokens = [state.decoder[token_id] for token_id in tokens_ids]
-    tokens = [bytearray([state.byte_decoder[c] for c in token]).decode('utf-8', errors=state.errors) for token in raw_tokens]
+    tokens = state.tokenize(s)
   else:
     assert False
 
@@ -174,10 +160,7 @@ def tokens_to_ids(tokens, tokenizer=DEFAULT_TOKENIZER):
       tokens_ids.extend(state.encoder[bpe_token] for bpe_token in state.bpe(token).split(' '))
     # tokens_ids = [state[1][t] for t in tokens]
   elif tokenizer == Tokenizer.SBERT:
-    tokens_ids = []
-    for token in tokens:
-      token = ''.join(state.byte_encoder[b] for b in token.encode('utf-8'))
-      tokens_ids.extend(state.encoder[bpe_token] for bpe_token in state.bpe(token).split(' '))
+    tokens_ids = state.convert_tokens_to_ids(tokens)
   else:
     assert False
 
@@ -199,8 +182,7 @@ def ids_to_tokens(tokens_ids, tokenizer=DEFAULT_TOKENIZER):
     tokens = [bytearray([state.byte_decoder[c] for c in token]).decode('utf-8', errors=state.errors) for token in tokens]
     # tokens = [state[0][t] for t in tokens_ids]
   elif tokenizer == Tokenizer.SBERT:
-    tokens = [state.decoder[token_id] for token_id in tokens_ids]
-    tokens = [bytearray([state.byte_decoder[c] for c in token]).decode('utf-8', errors=state.errors) for token in tokens]
+    tokens = state.convert_ids_to_tokens(tokens_ids)
   else:
     assert False
 
@@ -240,7 +222,7 @@ def vocab_size(tokenizer=DEFAULT_TOKENIZER):
     # vocab_size = len(state[0])
     vocab_size = len(state.encoder)
   elif tokenizer == Tokenizer.SBERT:
-    vocab_size = len(state.encoder)
+    vocab_size = len(state)
   else:
     assert False
 
