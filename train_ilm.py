@@ -111,7 +111,7 @@ def doc_and_char_masks_to_input_and_tt(
     # print("doc_token_ids:", doc_tokens_ids)
   except:
     doc_tokens = None
-    print("failed to tokenize document!", sys.exc_info()[0])
+    print("Failed to tokenize document!", sys.exc_info()[0])
     #error_to_count['Failed to tokenize document'] += len(char_masks)
 
   # Align character masks to tokens
@@ -119,6 +119,11 @@ def doc_and_char_masks_to_input_and_tt(
   if doc_tokens is not None:
     for char_mask in char_masks:
       try:
+        if tokenizer == ilm.tokenize_util.Tokenizer.SBERT:
+          doc = doc.lower()
+          doc = doc.replace('й', 'и')
+          doc_tokens = [token.replace('##', '') for token in doc_tokens]
+          
         tok_mask = ilm.mask.util.align_char_mask_to_tokens(doc, doc_tokens, char_mask)
       except:
         print("Failed to align character-level mask to tokens", sys.exc_info()[0])
