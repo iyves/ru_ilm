@@ -102,7 +102,7 @@ def update_tokenizer(additional_ids_to_tokens, tokenizer=DEFAULT_TOKENIZER):
     vocab_size_after = len(state.encoder)
   elif tokenizer == Tokenizer.SBERT:
     vocab_size_before = len(state)
-    state.add_tokens(additional_tokens_to_ids.values())
+    state.add_tokens(list(additional_tokens_to_ids.keys()))
     # note: model was updated w/ resize_token_embeddings
     vocab_size_after = len(state)
   else:
@@ -258,7 +258,6 @@ def _tokens_offsets_and_residuals_memoized(x, x_tok):
       x_remaining = x_remaining[trim:]
 
   rres = x_remaining
-
   return offsets, residuals, rres
 
 
